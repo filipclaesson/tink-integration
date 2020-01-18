@@ -172,6 +172,7 @@ class ComponentHelper():
 
         text_style_added = text
         p = Paragraph(text, style)
+        print("test")
         return p
 
 
