@@ -10,6 +10,38 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.colors import Color
 import numpy as np
 
+from reportlab.pdfgen.canvas import Canvas
+
+
+
+class Document:
+
+    def __init__(self, name, pagesize=defaultPageSize):
+        self.pagesize=pagesize
+        self.name=name
+        self.canvas = Canvas('mydoc.pdf', pagesize=self.pagesize)
+        self.pages = []
+
+
+    def get_canvas(self):
+        return self.canvas
+
+    def get_pagesize(self):
+        return self.pagesize
+
+    def add_page(self,page):
+        self.pages.append(page)
+
+    def save(self):
+        for page in self.pages:
+            for row in page.get_rows():
+                for column in row.get_columns():
+                    column.draw_elements()
+            print('page ' + str(page.page_number) + ' complete')
+            self.canvas.showPage()
+
+        self.canvas.save()
+
 
 class Page:
     """A page should be added to a Document
@@ -24,47 +56,43 @@ class Page:
    
     """
     # Initializer / Instance Attributes
-    def __init__(self, name, page_number):
+    def __init__(self, name,page_number, document,top_padding=2,left_padding=2):
         self.name = name
         self.page_number = page_number
         self.rows = []
-   
-    # updates the y position of all rows
-    def update_row_positions(self):
-        PAGE_HEIGHT=defaultPageSize[1];
-        rows_above = []
-        # update all row y-positions (and the frame positions)
-        for page_row in self.rows:
-            rows_above = self.get_rows_above_level(page_row.get_level())
-            height_sum = sum([row.get_height() for row in rows_above])
-            y_pos = (PAGE_HEIGHT-3*cm)-height_sum-page_row.get_height()
-            
-            page_row.set_y_pos(y_pos)
-            page_row.update_frames_y_pos() #if a row is added, or the rows are modified, all row-frames needs to be updated
-   
-        # helper
-    def get_rows_above_level(self, level):
-        rows_above = []
-        for page_row in self.rows:
-            if page_row.get_level() < level:
-                rows_above.append(page_row)
-        return rows_above
-       
+        self.document = document
+        self.pagesize = self.document.get_pagesize()
+
+        self.document.add_page(self)
+        
+
+        self.top_padding=top_padding*cm
+        self.left_padding=left_padding*cm
+
+    def get_y_pos_for_level(self,level):
+        height_sum = sum([r.get_height() for r in self.rows[:level]]) # sum all 
+        return (self.pagesize[1]-self.top_padding)-height_sum
+    
+    ## TODO: error handling, should not be able to add more rows than max pange height   
     def add_row(self,row):
         self.rows.append(row)
-        self.update_row_positions()
-       
-       
-    def get_row(self,level):
-        return self.rows[level-1]
+
    
     def get_row_by_name(self,name):
         for i in self.rows:
             if i.get_name() == name:
                 return i
+
+    def get_rows(self):
+        return self.rows
+
+    def get_document(self):
+        return(self.document)
+
+
+
    
-   
-class Row():
+class Row:
     """ A Row should be added to a Page
    
         Args:
@@ -73,91 +101,83 @@ class Row():
             level: the level of the row on the row
             frame_setup: array of frame distribution, example: two frames, one taking 2/3 of the space [1/3,2/3]
    
-   
         Returns:
             Row object
    
     """
-    def __init__(self, name, height, level,frame_setup=None):
-        from reportlab.lib.units import cm
+    def __init__(self, name, height, level, page,frame_setup=None, row_width=defaultPageSize[0]):
         self.name = name
         self.height = height*cm
         self.level = level
-        self.y_pos = 0
-        self.frames = []
-        self.frame_setup = frame_setup
-        if frame_setup is not None:
-            self.setup_frames(self.frame_setup)
-       
-   
-    #def get_coordinates()
-    # helper
-    def setup_frames(self,frame_setup):
-        if sum(frame_setup) != 100:
-            raise Exception("frame_setup must sum to 100")
-        for index,setup in enumerate(frame_setup):
-            coordinates = self._add_frame(col_num=index,frame_setup=frame_setup)
-   
-    def _add_frame(self,col_num,frame_setup):
-        from reportlab.rl_config import defaultPageSize
-        from reportlab.lib.units import cm
-        padding=2*cm
+        self.page = page
+        self.columns=[]
 
-        PAGE_WIDTH=defaultPageSize[0]
-       
-        if (col_num == 0):
-            x_pos_offset = 0
-        else:
-            x_pos_offset = frame_setup[col_num-1]/100
-           
-        col_set = {'x': padding+(PAGE_WIDTH-padding*2)*x_pos_offset
-               ,'width':((PAGE_WIDTH-padding*2))*(frame_setup[col_num]/100)
-               ,'y': self.y_pos
-               ,'height':self.height}
+        # add the row to the page
+        self.page.add_row(self)
+        # get the y pos from the page for the current level
+        self.y_pos=self.page.get_y_pos_for_level(level)
 
-        ## print('frame created in ' + self.get_name() + ", x: " + str(col_set['x']) + ', y: ' + str(col_set['y']))
-        self.frames.append(
-            Frame(x1=col_set['x'],y1=col_set['y'],
-                  width=col_set['width'],height=col_set['height'],
-                  leftPadding=0, bottomPadding=0,
-                  rightPadding=0, topPadding=6,
-                  showBoundary=0)
-        )
-        return col_set
-   
-    def update_frames_y_pos(self):
-        for index,setup in enumerate(self.frame_setup):
-            ## print("updating frame number " + str(index) + ' in ' + self.name)
-            ## print(self.y_pos)
-            self.frames[index]._y1 = self.y_pos
-            self.frames[index]._y2 = self.y_pos + self.height
-            self.frames[index]._reset()
-
-           
-    def add_elements_to_frame(self,elements,col_num,canvas):
-        self.frames[col_num-1].addFromList(elements,canvas)
-       
-       
-    def get_level(self):
-        return self.level
-   
+    ## TODO: error handling, should not be able to add more columns than max pange width
     def get_height(self):
         return self.height
 
-    def get_name(self):
-        return self.name
-   
-    def set_y_pos(self,y):
-        self.y_pos = y
-       
-    def get_frame(self,frame_num):
-        return self.frames[frame_num-1]
+    def add_column(self,column):
+        self.columns.append(column)
+
+    def get_x_pos_for_level(self,level):
+        width_sum = sum([c.get_width() for c in self.columns[:level]]) # sum all 
+        # max_width = self.get_page().pagesize[0]
+        return self.get_page().left_padding + width_sum
+
+    def get_page(self):
+        return self.page
+
+    def get_columns(self):
+        return self.columns
+
+    def get_y_pos(self):
+        return self.y_pos
+
+
+
+class Column:
+
+    def __init__(self,name,width,level,row):
+        self.name = name
+        self.width = width*cm
+        self.level = level
+        self.row = row
+        self.elements = []
+
+        # add the row to the page
+        self.row.add_column(self)
+        # get the y pos from the page for the current level
+        self.x_pos=self.row.get_x_pos_for_level(level) - self.width
+
+        self.frame = Frame(
+            x1=self.x_pos, y1=self.row.get_y_pos(),
+            width=self.width,height=self.row.get_height(),
+            leftPadding=0, bottomPadding=0,
+            rightPadding=0, topPadding=6,
+            showBoundary=0
+        )
+
+    def get_width(self):
+        return self.width
+
+    def get_row(self):
+        return self.row
+
+    def add_element(self,element):
+        self.elements.append(element)
+
+    def draw_elements(self):
+        self.frame.addFromList(self.elements, self.get_row().get_page().get_document().get_canvas())
 
 
 
 
-
-
+## Separate container for setting up elements
 class ComponentHelper():
 
     def __init__(self):
@@ -169,10 +189,8 @@ class ComponentHelper():
         style = ParagraphStyle('test')
         for key in settings:
             style.__dict__[key] = settings[key]
-
         text_style_added = text
         p = Paragraph(text, style)
-        print("test")
         return p
 
 
@@ -224,3 +242,58 @@ class ComponentHelper():
                     if format_ == '':
                         pass
         return [style,df_list.tolist()]
+
+
+
+## Example of how to use it
+# from reportlab.lib.pagesizes import letter, landscape
+# from reportlab.platypus import Image
+# from reportlab.lib.units import cm
+# ch = rapi.ComponentHelper()
+# d = rapi.Document('mydoc.pdf',pagesize=landscape(letter))
+# 
+# p = rapi.Page("page1",1
+#       ,document=d
+#       ,top_padding=1.5
+#       ,left_padding=4
+#      )
+# r1 = rapi.Row(name="header1",height=7,level=1,page=p)
+# r1_c1 = rapi.Column(name="r1c1",width=10,level=1,row=r1)
+# r1_c2 = rapi.Column(name="r1c1",width=10,level=2,row=r1)
+# r2 = rapi.Row(name="header1",height=7,level=2,page=p)
+# r2_c1 = rapi.Column(name="r1c1",width=10,level=1,row=r2)
+# r2_c2 = rapi.Column(name="r1c1",width=10,level=2,row=r2)
+# 
+# im = Image("./plots/"+plots[0], width=8*cm, height=6*cm)
+# r1_c1.add_element(im)
+# im = Image("./plots/"+plots[0], width=8*cm, height=6*cm)
+# r2_c2.add_element(im)
+# d.save()
+# 
+# ## with loop
+# from reportlab.lib.pagesizes import letter, landscape
+# from reportlab.platypus import Image
+# from reportlab.lib.units import cm
+# ch = rapi.ComponentHelper()
+# d = rapi.Document('mydoc.pdf',pagesize=landscape(letter))
+# 
+# import math
+# for page in range(0,math.ceil(len(plots)/4)):
+#     p = rapi.Page("page1",page
+#           ,document=d
+#           ,top_padding=1.5
+#           ,left_padding=2
+#          )
+#     r1 = rapi.Row(name="header1",height=7,level=1,page=p)
+#     r1_c1 = rapi.Column(name="r1c1",width=10,level=1,row=r1)
+#     r1_c2 = rapi.Column(name="r1c1",width=10,level=2,row=r1)
+#     r2 = rapi.Row(name="header1",height=7,level=2,page=p)
+#     r2_c1 = rapi.Column(name="r1c1",width=10,level=1,row=r2)
+#     r2_c2 = rapi.Column(name="r1c1",width=10,level=2,row=r2)
+#     
+#     r1_c1.add_element(Image("./plots/"+plots[0+page*4-1], width=8*cm, height=6*cm))
+#     r1_c2.add_element(Image("./plots/"+plots[1+page*4-1], width=8*cm, height=6*cm))
+#     r2_c1.add_element(Image("./plots/"+plots[2+page*4-1], width=8*cm, height=6*cm))
+#     r2_c2.add_element(Image("./plots/"+plots[3+page*4-1], width=8*cm, height=6*cm))
+# d.save()
+# 
