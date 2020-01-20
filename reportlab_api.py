@@ -8,6 +8,7 @@ from reportlab.platypus import Frame,Table,Paragraph
 from reportlab.lib.colors import pink, black, red, blue, green,white
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.colors import Color
+from reportlab.lib.utils import ImageReader
 import numpy as np
 
 from reportlab.pdfgen.canvas import Canvas
@@ -34,6 +35,7 @@ class Document:
 
     def save(self):
         for page in self.pages:
+            page.draw_page_elements()
             for row in page.get_rows():
                 for column in row.get_columns():
                     column.draw_elements()
@@ -56,7 +58,7 @@ class Page:
    
     """
     # Initializer / Instance Attributes
-    def __init__(self, name,page_number, document,top_padding=2,left_padding=2):
+    def __init__(self, name,page_number, document,top_padding=2,left_padding=2, background_path=None):
         self.name = name
         self.page_number = page_number
         self.rows = []
@@ -68,6 +70,11 @@ class Page:
 
         self.top_padding=top_padding*cm
         self.left_padding=left_padding*cm
+
+        self.logo_path = None
+        self.logo_settings = {}
+
+        self.background_path=background_path
 
     def get_y_pos_for_level(self,level):
         height_sum = sum([r.get_height() for r in self.rows[:level]]) # sum all 
@@ -89,6 +96,23 @@ class Page:
     def get_document(self):
         return(self.document)
 
+    def draw_page_elements(self):
+        # draw logo
+        if self.logo_path is not None:
+            logo = ImageReader(self.logo_path)
+            if len(self.logo_settings) == 0:
+                self.document.get_canvas().drawImage(logo, 10, 10,mask='auto')
+            else:
+                if self.logo_settings['position']=='bottom-right':
+                    y = self.logo_settings['padding']
+                    x = float(self.pagesize[0])-logo.getSize()[0]-self.logo_settings['padding']
+                    print('x: ' + str(x) + ', y: ' + str(y))
+                    self.document.get_canvas().drawImage(logo, y=y, x=x,mask='auto')
+
+    def add_logo(self,logo_path,position,padding):
+        self.logo_path = logo_path
+        self.logo_settings['position'] = position
+        self.logo_settings['padding'] = padding*cm
 
 
    
@@ -243,6 +267,11 @@ class ComponentHelper():
                         pass
         return [style,df_list.tolist()]
 
+
+## Component helpters
+ class Logo:
+
+    
 
 
 ## Example of how to use it
